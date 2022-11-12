@@ -1,0 +1,97 @@
+---
+title: "Homework 5"
+output: github_document
+date: "2022-11-12"
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggridges)
+library(patchwork)
+library(hexbin)
+library(tidyr)
+library(dplyr)
+library(purrr)
+
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+	fig.width = 8, 
+  fig.height = 6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+# Problem 1
+
+
+
+# Problem 2
+
+## Describe the raw data
+
+In the raw data we see that we have 52,179 observations (criminal homicides) over the past decade in 51 of the largest American cities. The data set includes 12 variables including; the location of the killing, whether an arrest was made and, in most cases, basic demographic information about each victim. The data set is more specific than the federal homicide data gathered annually by the FBI from police agencies nationwide because reporters consulted public records, including death certificates, court records, and medical examiner reports, to fill in the gaps. 
+```{r}
+homicide_data=
+  read.csv("homicide-data.csv") 
+homicide_data
+view(homicide_data)
+```
+
+
+## Create a city_state variable and then summarize within the cities to obtain the total number of homicides and the number of unsolved homicides
+
+First I selected what I needed to answer the question (uid, city, state, disposition). Second I combined the city and state variable so that they were one. Third, I grouped all the uid variables (homicide victim identifier) into the disposition (whether the homicide was solved or unsolved). Fourth, since I had a series of character variables within the data set, but not the number of those said variables I counted them by using the `rowwise` function which allows us to count the character variables within the row. 
+```{r}
+tidy_homicide_data=
+  read.csv("homicide-data.csv") %>% 
+janitor::clean_names() %>% 
+  select(uid, city, state, disposition) %>% 
+  unite("city_state", city:state) %>% 
+  pivot_wider(names_from = disposition, values_from = uid) %>%
+  select(city_state, `Closed without arrest`, `Open/No arrest`) %>% 
+  rowwise() %>% 
+  mutate(`total_homicide` = length(`Closed without arrest`)) %>% 
+  rowwise() %>% 
+  mutate(`unsolved_homicide` = length(`Open/No arrest`)) %>% 
+  select(city_state, total_homicide,unsolved_homicide)
+
+view(tidy_homicide_data)
+```
+
+
+## For the city of Baltimore, MD, use the prop.test function to estimate the proportion of homicides that are unsolved; save the output of prop.test as an R object, apply the broom::tidy to this object and pull the estimated proportion and confidence intervals from the resulting tidy dataframe.
+```{r}
+baltimore_df = tidy_homicide_data %>% 
+  filter(city_state %in% c("Baltimore_MD"))
+view(baltimore_df)
+```
+
+```{r}
+  prop.test(
+    x = baltimore_df %>% pull(unsolved_homicide)
+    n= 
+  )
+```
+
+
+## Now run prop.test for each of the cities in your dataset, and extract both the proportion of unsolved homicides and the confidence interval for each. Do this within a “tidy” pipeline, making use of purrr::map, purrr::map2, list columns and unnest as necessary to create a tidy dataframe with estimated proportions and CIs for each city.
+
+
+## Create a plot that shows the estimates and CIs for each city – check out geom_errorbar for a way to add error bars based on the upper and lower limits. Organize cities according to the proportion of unsolved homicides.
+
+
+
+
+# Problem 3
+
