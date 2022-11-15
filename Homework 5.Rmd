@@ -13,6 +13,7 @@ library(tidyr)
 library(dplyr)
 library(purrr)
 
+
 knitr::opts_chunk$set(
 	echo = TRUE,
 	warning = FALSE,
@@ -33,7 +34,46 @@ scale_fill_discrete = scale_fill_viridis_d
 ```
 
 # Problem 1
+The code chunk below imports the data in individual spreadsheets contained in `./data/zip_data/`. To do this, I create a dataframe that includes the list of all files in that directory and the complete path to each file. As a next step, I `map` over paths and import data using the `read_csv` function. Finally, I `unnest` the result of `map`.
 
+```{r}
+full_df = 
+  tibble(
+    files = list.files("data/zip_data/"),
+    path = str_c("data/zip_data/", files)
+  ) %>% 
+  mutate(data = map(path, read_csv)) %>% 
+  unnest()
+```
+
+The result of the previous code chunk isn't tidy -- data are wide rather than long, and some important variables are included as parts of others. The code chunk below tides the data using string manipulations on the file, converting from wide to long, and selecting relevant variables. 
+
+```{r}
+tidy_df = 
+  full_df %>% 
+  mutate(
+    files = str_replace(files, ".csv", ""),
+    group = str_sub(files, 1, 3)) %>% 
+  pivot_longer(
+    week_1:week_8,
+    names_to = "week",
+    values_to = "outcome",
+    names_prefix = "week_") %>% 
+  mutate(week = as.numeric(week)) %>% 
+  select(group, subj = files, week, outcome)
+```
+
+Finally, the code chunk below creates a plot showing individual data, faceted by group. 
+
+```{r}
+tidy_df %>% 
+  ggplot(aes(x = week, y = outcome, group = subj, color = group)) + 
+  geom_point() + 
+  geom_path() + 
+  facet_grid(~group)
+```
+
+This plot suggests high within-subject correlation -- subjects who start above average end up above average, and those that start below average end up below average. Subjects in the control group generally don't change over time, but those in the experiment group increase their outcome in a roughly linear way. 
 
 
 # Problem 2
@@ -51,47 +91,73 @@ view(homicide_data)
 
 ## Create a city_state variable and then summarize within the cities to obtain the total number of homicides and the number of unsolved homicides
 
-First I selected what I needed to answer the question (uid, city, state, disposition). Second I combined the city and state variable so that they were one. Third, I grouped all the uid variables (homicide victim identifier) into the disposition (whether the homicide was solved or unsolved). Fourth, since I had a series of character variables within the data set, but not the number of those said variables I counted them by using the `rowwise` function which allows us to count the character variables within the row. 
+First I selected what I needed to answer the question (uid, city, state, disposition). Second I combined the city and state variable so that they were one. Third, I grouped all the city_state variables into the disposition (whether the homicide was solved or unsolved). Fourth, I separated the disposition by their separate identifiers (closed by arrest, open/no arrest/ closed without arrest). Fifth, I summarized the values within each disposition identifier so that the values would be counted. Since I had a series of character variables within the data set, but not the number of those said variables I counted them by using the `rowwise` function which allows us to count the character variables within the row.
+
+Then I created three more columns by using the mutate function. The unsolved column includes both closed without arrest and open/no arrest, while the total column includes all three original disposition identifiers. The percent unsolved column includes the ratio of the unsolved cases over the total cases. 
+
+Then for every data value that had `NA` listed I replaced it with `0` so later portions of the problem will give actual values.
 ```{r}
 tidy_homicide_data=
   read.csv("homicide-data.csv") %>% 
-janitor::clean_names() %>% 
-  select(uid, city, state, disposition) %>% 
-  unite("city_state", city:state) %>% 
-  pivot_wider(names_from = disposition, values_from = uid) %>%
-  select(city_state, `Closed without arrest`, `Open/No arrest`) %>% 
+janitor::clean_names() %>%
+  unite("city_state", city:state) %>%
+  group_by(city_state, disposition) %>% 
+  filter(disposition %in% "Closed by arrest" | disposition %in% "Open/No arrest" | disposition %in% "Closed without arrest") %>% 
+  summarize(value = n()) %>%
+  pivot_wider(names_from = disposition, values_from = value) %>% 
   rowwise() %>% 
-  mutate(`total_homicide` = length(`Closed without arrest`)) %>% 
-  rowwise() %>% 
-  mutate(`unsolved_homicide` = length(`Open/No arrest`)) %>% 
-  select(city_state, total_homicide,unsolved_homicide)
-
+  mutate(unsolved = sum(c_across("Closed without arrest": "Open/No arrest")),
+         total= sum(c_across("Closed by arrest": "Open/No arrest")),
+         percent_unsolved =unsolved/total) 
+tidy_homicide_data[is.na(tidy_homicide_data)] = 0
 view(tidy_homicide_data)
 ```
 
-
 ## For the city of Baltimore, MD, use the prop.test function to estimate the proportion of homicides that are unsolved; save the output of prop.test as an R object, apply the broom::tidy to this object and pull the estimated proportion and confidence intervals from the resulting tidy dataframe.
+
 ```{r}
 baltimore_df = tidy_homicide_data %>% 
   filter(city_state %in% c("Baltimore_MD"))
-view(baltimore_df)
-```
-
-```{r}
-  prop.test(
-    x = baltimore_df %>% pull(unsolved_homicide)
-    n= 
-  )
+prop.test(x = baltimore_df %>% pull(unsolved), n = baltimore_df %>% pull(total), alternative = c("two.sided"), conf.level = 0.95) %>% 
+  broom::tidy() %>% 
+    select(estimate, conf.low, conf.high) %>% 
+knitr::kable(digits = 4, caption = "Table for Baltimore, MD")
 ```
 
 
 ## Now run prop.test for each of the cities in your dataset, and extract both the proportion of unsolved homicides and the confidence interval for each. Do this within a “tidy” pipeline, making use of purrr::map, purrr::map2, list columns and unnest as necessary to create a tidy dataframe with estimated proportions and CIs for each city.
 
+```{r}
+tidy_homicide_data_nest = 
+  nest(tidy_homicide_data, data = "Closed by arrest" : "percent_unsolved")
+
+tidy_homicide_data_nest %>% pull(city_state)
+tidy_homicide_data_nest %>% pull(data)
+
+unnest(tidy_homicide_data_nest, cols= data)
+
+homicide_proptest = function(df){
+  prop.test(x = tidy_homicide_data_nest %>% pull(unsolved), n = tidy_homicide_data_nest %>% pull(total), alternative = c("two.sided"), conf.level = 0.95)
+}
+
+homicide_proptest(tidy_homicide_data$data[[1]])
+map(tidy_homicide_data_nest$data, homicide_proptest)
+```
+
 
 ## Create a plot that shows the estimates and CIs for each city – check out geom_errorbar for a way to add error bars based on the upper and lower limits. Organize cities according to the proportion of unsolved homicides.
+
+```{r}
+
+```
 
 
 
 
 # Problem 3
+
+```{r}
+
+```
+
 
